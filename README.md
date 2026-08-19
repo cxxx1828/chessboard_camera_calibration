@@ -1,32 +1,32 @@
 # RealSense D455/D457 Chessboard Calibration
 
-Kalibracija RGB + levog i desnog IR senzora na Intel RealSense D455/D457 kameri,
-korišćenjem klasične šahovnice (chessboard) kao kalibracione table.
+Calibration of the RGB, left IR, and right IR sensors on an Intel RealSense
+D455/D457 camera, using a classic chessboard as the calibration target.
 
-> Ovo je chessboard varijanta pipeline-a. Postoji i AprilGrid varijanta
-> (preciznija detekcija, robustnija na delimično zaklonjenu tablu) — ako ti
-> treba ta verzija umesto ove, javi.
+> This is the chessboard variant of the pipeline. An AprilGrid variant also
+> exists (more precise detection, more robust to a partially occluded board) —
+> if you need that version instead, let me know.
 
-## Kalibraciona tabla
+## Calibration board
 
-- **9 × 6** unutrašnjih uglova (10×7 kvadrata)
-- Veličina kvadrata: **29 mm**
-- Standardna štampana šahovnica, mora se poklapati sa `COLS_INNER`,
-  `ROWS_INNER`, `SQUARE_SIZE_MM` u kodu
+- **9 × 6** inner corners (10×7 squares)
+- Square size: **29 mm**
+- Standard printed chessboard; must match `COLS_INNER`, `ROWS_INNER`,
+  `SQUARE_SIZE_MM` in the code
 
-> Tabla mora biti **potpuno ravna** (zalepljena na tvrdu podlogu, ne savijena
-> na papiru) — `cv2.findChessboardCorners` je osetljiv na deformaciju ravni,
-> mnogo više nego AprilGrid pristup.
+> The board must be **perfectly flat** (mounted on a rigid backing, not a
+> loose sheet of paper) — `cv2.findChessboardCorners` is sensitive to plane
+> deformation, far more so than the AprilGrid approach.
 
-## Struktura projekta
+## Project structure
 
 ```
 chessboard_calibration/
-├── capture.py          # snimanje sinhronizovanih RGB + IR1 + IR2 slika
-├── common.py             # zajedničke helper funkcije (detekcija, YAML I/O)
-├── rgb_mono.py            # mono kalibracija RGB senzora
-├── ir_mono.py             # mono kalibracija levog/desnog IR senzora
-├── stereo.py              # stereo kalibracija (left-right, rgb-left)
+├── capture.py          # synchronized RGB + IR1 + IR2 image capture
+├── common.py             # shared helper functions (detection, YAML I/O)
+├── rgb_mono.py            # mono calibration of the RGB sensor
+├── ir_mono.py             # mono calibration of the left/right IR sensor
+├── stereo.py              # stereo calibration (left-right, rgb-left)
 ├── calib_images/
 │   ├── rgb/
 │   ├── left_ir/
@@ -39,47 +39,50 @@ chessboard_calibration/
     └── stereo_rgb_left.yaml
 ```
 
-## Zavisnosti
+## Dependencies
 
 ```bash
 pip3 install pyrealsense2 opencv-python numpy
 ```
 
-(`opencv-python` je dovoljan ovde — za razliku od AprilGrid varijante, ne
-treba `cv2.aruco` modul.)
+(`opencv-python` is sufficient here — unlike the AprilGrid variant, the
+`cv2.aruco` module isn't needed.)
 
-## Redosled koraka
+## Step-by-step order
 
-### 1. Snimanje slika
+### 1. Capturing images
 
 ```bash
 python3 capture.py
 ```
 
-- `SPACE` — čuva sinhronizovani triplet (RGB + IR1 + IR2), samo ako je
-  šahovnica detektovana u sva tri frejma
-- `Q` — izlaz
-- IR emiter (laser projektor) se automatski gasi tokom snimanja jer njegov
-  tačkasti pattern ometa detekciju uglova šahovnice
-- Preporuka: snimi 15–20+ slika (idealno više, 40–60) sa raznovrsnim uglovima,
-  udaljenostima i pozicijama table u kadru, uključujući ivice/uglove slike
+- `SPACE` — saves a synchronized triplet (RGB + IR1 + IR2), only if the
+  chessboard was detected in all three frames
+- `Q` — quit
+- The IR emitter (laser projector) is automatically disabled during capture,
+  since its dot pattern interferes with chessboard corner detection
+- Recommendation: capture 15–20+ images (ideally more, 40–60) with varied
+  angles, distances, and board positions in the frame, including the edges
+  and corners of the image
 
-**Rezolucija/FPS** (`WIDTH, HEIGHT, FPS` na vrhu fajla) mora da odgovara onome
-što tvoja USB veza podržava:
+**Resolution/FPS** (`WIDTH, HEIGHT, FPS` at the top of the file) must match
+what your USB connection supports:
 
-- USB3 veza: `1280, 720, 30` radi za sve tri strimove istovremeno
-- USB2 veza: kamera ograničava kombinacije (Color max ~15Hz na 720p, IR max ~5Hz);
-  proveri `rs-enumerate-devices -c` i po potrebi koristi `640, 480, 30`
+- USB3 connection: `1280, 720, 30` works for all three streams simultaneously
+- USB2 connection: the camera restricts combinations (Color maxes out around
+  ~15Hz at 720p, IR around ~5Hz); check `rs-enumerate-devices -c` and use
+  `640, 480, 30` if needed
 
-> **Kritično**: ne menjaj rezoluciju između snimanja u isti `calib_images/` folder.
-> Mešanje rezolucija u istom skupu slika tiho unosi sistemsku grešku u kalibraciju
-> (RMS naraste 2–4×) bez ijedne greške pri izvršavanju. Ako menjaš rezoluciju,
-> obriši stare slike i snimi ceo set iznova:
+> **Critical**: don't change resolution between captures into the same
+> `calib_images/` folder. Mixing resolutions in the same image set silently
+> introduces a systematic error into the calibration (RMS jumps 2–4×) with no
+> runtime error at all. If you change resolution, delete the old images and
+> recapture the whole set from scratch:
 > ```bash
 > rm -rf calib_images/rgb calib_images/left_ir calib_images/right_ir
 > ```
 
-### 2. Mono kalibracija (mora pre stereo koraka)
+### 2. Mono calibration (must run before the stereo step)
 
 ```bash
 python3 rgb_mono.py calibrate
@@ -87,72 +90,74 @@ python3 ir_mono.py calibrate left
 python3 ir_mono.py calibrate right
 ```
 
-Svaka komanda:
-- detektuje šahovnicu preko `cv2.findChessboardCorners`, pa je usitnjava na
-  subpixel preciznost preko `cv2.cornerSubPix`
-- računa `cv2.calibrateCamera` (K, distortion coefficients)
-- ispisuje RMS reprojection error po celom skupu i po slici
-- čuva rezultat u `results/*_intrinsics.yaml`
+Each command:
+- detects the chessboard via `cv2.findChessboardCorners`, then refines it to
+  sub-pixel accuracy with `cv2.cornerSubPix`
+- computes `cv2.calibrateCamera` (K, distortion coefficients)
+- prints the RMS reprojection error for the whole set and per image
+- saves the result to `results/*_intrinsics.yaml`
 
-**`stereo.py` čita ove `.yaml` fajlove sa diska** — ne računa intrinsics iznova.
-Ako ponovo snimiš slike (novi `capture.py` run), moraš ponovo pokrenuti sve
-tri mono komande pre stereo koraka, inače stereo kalibracija koristi zastarele
-intrinsics iz starog skupa slika.
+**`stereo.py` reads these `.yaml` files from disk** — it does not recompute
+intrinsics on the fly. If you recapture images (a new `capture.py` run), you
+must rerun all three mono commands before the stereo step, otherwise stereo
+calibration will use stale intrinsics from the old image set.
 
-### 3. Stereo kalibracija
+### 3. Stereo calibration
 
 ```bash
 python3 stereo.py calibrate left-right
 python3 stereo.py calibrate rgb-left
 ```
 
-- Koristi `cv2.CALIB_FIX_INTRINSIC` — mono intrinsics se ne menjaju, računa se
-  samo relativna rotacija/translacija (R, T) između dva senzora
-- Za svaki par slika zahteva da je šahovnica detektovana u OBA senzora
-  istovremeno (`found1 and found2`); u suprotnom se par preskače
-- Rezultat (K1, dist1, K2, dist2, R, T, E, F) se čuva u `results/stereo_*.yaml`
+- Uses `cv2.CALIB_FIX_INTRINSIC` — mono intrinsics are held fixed, only the
+  relative rotation/translation (R, T) between the two sensors is solved for
+- For each image pair, requires the chessboard to be detected in BOTH sensors
+  simultaneously (`found1 and found2`); otherwise the pair is skipped
+- The result (K1, dist1, K2, dist2, R, T, E, F) is saved to
+  `results/stereo_*.yaml`
 
-## Očekivani rezultati (orijentacija)
+## Expected results (rule of thumb)
 
-| RMS reprojection error | Kvalitet |
+| RMS reprojection error | Quality |
 |---|---|
-| < 0.5 px | vrhunski, pogodno za precizan depth/3D |
-| 0.5 – 1.5 px | solidno, standard za robotiku (navigacija, docking) |
-| > 2–3 px | problematično — proveri mešane rezolucije, loš fokus, ili savijenu tablu |
+| < 0.5 px | excellent, suitable for precise depth/3D |
+| 0.5 – 1.5 px | solid, standard for robotics (navigation, docking) |
+| > 2–3 px | problematic — check for mixed resolutions, poor focus, or a warped board |
 
-RGB senzor obično ima veći RMS od IR senzora (veća fabrička distorzija), i
-`stereo_rgb_left` obično ispadne nešto lošiji od `stereo_left_right` (dva
-različita tipa senzora umesto identičnog para) — to je očekivano, ne greška.
+The RGB sensor usually has a higher RMS than the IR sensors (larger factory
+distortion), and `stereo_rgb_left` usually comes out somewhat worse than
+`stereo_left_right` (two different sensor types instead of an identical
+pair) — that's expected, not a bug.
 
-## Parametri koje treba menjati zajedno
+## Parameters that must be changed together
 
-`COLS_INNER`, `ROWS_INNER`, `SQUARE_SIZE_MM` su definisani identično u
-`ir_mono.py`, `rgb_mono.py` i `stereo.py` (a `capture.py` ima svoje
-`COLS_INNER`/`ROWS_INNER` koji takođe moraju da se poklapaju). Ako menjaš
-tablu (drugačija dimenzija kvadrata ili broj polja), ove vrednosti moraju
-biti usklađene u svim fajlovima.
+`COLS_INNER`, `ROWS_INNER`, `SQUARE_SIZE_MM` are defined identically in
+`ir_mono.py`, `rgb_mono.py`, and `stereo.py` (and `capture.py` has its own
+`COLS_INNER`/`ROWS_INNER` that must also match). If you change the board
+(different square size or number of squares), these values must be kept in
+sync across all files.
 
-## Ograničenja u odnosu na AprilGrid pristup
+## Limitations compared to the AprilGrid approach
 
-- Šahovnica mora biti **potpuno vidljiva** da bi se detektovala — jedan
-  zaklonjeni ugao odbacuje ceo frejm. AprilGrid detektuje pojedinačne tagove
-  nezavisno, pa delimično zaklonjena tabla i dalje daje upotrebljive podatke.
-- Detekcija je osetljivija na ugao gledanja, refleksiju i savijenost table.
-- Nema built-in ID sistema — ne može se razlikovati orijentacija/deo table
-  ako je samo delimično u kadru.
+- The chessboard must be **fully visible** to be detected — a single
+  occluded corner discards the whole frame. AprilGrid detects individual
+  tags independently, so a partially occluded board still yields usable data.
+- Detection is more sensitive to viewing angle, glare, and warping.
+- No built-in ID system — can't distinguish orientation/section of the board
+  if only part of it is in frame.
 
-## Debagovanje
+## Troubleshooting
 
-- **`Couldn't resolve requests`** pri `capture.py` — tražena kombinacija
-  rezolucije/FPS-a nije podržana na trenutnoj USB vezi; proveri
-  `rs-enumerate-devices -c` i prilagodi `WIDTH, HEIGHT, FPS`
-- **`ModuleNotFoundError: pyrealsense2`** — nije instaliran u aktivnom
-  virtualenv-u (`pip3 install pyrealsense2`)
-- **Nagli skok u RMS-u posle dodavanja novih slika** — skoro uvek mešane
-  rezolucije u istom folderu; obriši i snimi iznova na jednoj rezoluciji
-- **`stereo.py` javlja nerealno visok RMS iako su mono rezultati dobri** —
-  proveri da li si pokrenula mono kalibracije NA TRENUTNOM skupu slika pre
-  stereo koraka (vidi korak 2)
-- **Mnogo odbačenih frejmova ("chessboard not found")** — proveri osvetljenje,
-  fokus, i da li je tabla dovoljno ravna; šahovnica je manje tolerantna na
-  ove faktore nego AprilGrid
+- **`Couldn't resolve requests`** in `capture.py` — the requested
+  resolution/FPS combination isn't supported on the current USB connection;
+  check `rs-enumerate-devices -c` and adjust `WIDTH, HEIGHT, FPS`
+- **`ModuleNotFoundError: pyrealsense2`** — not installed in the active
+  virtualenv (`pip3 install pyrealsense2`)
+- **Sudden jump in RMS after adding new images** — almost always mixed
+  resolutions in the same folder; delete and recapture at a single resolution
+- **`stereo.py` reports an unrealistically high RMS even though the mono
+  results look good** — check whether you ran the mono calibrations on the
+  CURRENT image set before the stereo step (see step 2)
+- **Many rejected frames ("chessboard not found")** — check lighting, focus,
+  and whether the board is flat enough; chessboards are less tolerant of
+  these factors than AprilGrid
