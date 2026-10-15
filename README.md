@@ -3,10 +3,6 @@
 Calibration of the RGB, left IR, and right IR sensors on an Intel RealSense
 D455/D457 camera, using a classic chessboard as the calibration target.
 
-> This is the chessboard variant of the pipeline. An AprilGrid variant also
-> exists (more precise detection, more robust to a partially occluded board) —
-> if you need that version instead, let me know.
-
 ## Calibration board
 
 - **9 × 6** inner corners (10×7 squares)
