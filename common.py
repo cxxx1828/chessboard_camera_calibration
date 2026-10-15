@@ -1,7 +1,3 @@
-"""
-Shared helper functions used across all calibration modules
-(rgb_mono, ir_mono, stereo).
-"""
 
 import cv2
 import numpy as np
